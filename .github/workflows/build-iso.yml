@@ -1,0 +1,69 @@
+
+name: Build KRISH OS ISO
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "KRISH-OS-ULTRA-LIGHT-v0.4.zip"
+      - ".github/workflows/build-iso.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify source archive
+        run: |
+          test -s "KRISH-OS-ULTRA-LIGHT-v0.4.zip"
+          unzip -t "KRISH-OS-ULTRA-LIGHT-v0.4.zip"
+          unzip -l "KRISH-OS-ULTRA-LIGHT-v0.4.zip"
+
+      - name: Build inside Debian 13 container
+        run: |
+          mkdir -p source
+          unzip -q "KRISH-OS-ULTRA-LIGHT-v0.4.zip" -d source
+          PROJECT="source/KRISH-OS-ULTRA-LIGHT-v0.4"
+          test -f "$PROJECT/scripts/build-krish-os.sh"
+          test -f "$PROJECT/config/package-lists/krish-os.list.chroot"
+          docker run --privileged --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w "/work/$PROJECT" \
+            debian:trixie \
+            bash -lc '
+              set -euxo pipefail
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                live-build debootstrap xorriso squashfs-tools \
+                ca-certificates file
+              chmod +x scripts/build-krish-os.sh scripts/validate-source.sh
+              ./scripts/validate-source.sh
+              ./scripts/build-krish-os.sh
+            '
+
+      - name: Find and verify ISO
+        id: iso
+        run: |
+          ISO="$(find source/KRISH-OS-ULTRA-LIGHT-v0.4 -type f -name '*.iso' -print -quit)"
+          if [ -z "$ISO" ]; then
+            echo "No ISO was produced. Review the Build step logs."
+            exit 1
+          fi
+          file "$ISO"
+          ls -lh "$ISO"
+          sha256sum "$ISO"
+          echo "path=$ISO" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KRISH-OS-ULTRA-LIGHT-v0.4-ISO
+          path: ${{ steps.iso.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7
