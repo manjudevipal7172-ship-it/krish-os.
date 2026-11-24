@@ -15,6 +15,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,8 +31,10 @@ jobs:
           mkdir -p source
           unzip -q "KRISH-OS-ULTRA-LIGHT-v0.4.zip" -d source
           PROJECT="source/KRISH-OS-ULTRA-LIGHT-v0.4"
+
           test -f "$PROJECT/scripts/build-krish-os.sh"
           test -f "$PROJECT/config/package-lists/krish-os.list.chroot"
+
           docker run --privileged --rm \
             -v "$GITHUB_WORKSPACE:/work" \
             -w "/work/$PROJECT" \
@@ -49,16 +52,49 @@ jobs:
 
       - name: Find and verify ISO
         id: iso
+        shell: bash
         run: |
-          ISO="$(find source/KRISH-OS-ULTRA-LIGHT-v0.4 -type f -name '*.iso' -print -quit)"
+          set -euo pipefail
+
+          PROJECT="source/KRISH-OS-ULTRA-LIGHT-v0.4"
+
+          echo "Searching for ISO with elevated permissions..."
+
+          ISO="$(sudo find "$PROJECT" -type f -name '*.iso' -print -quit 2>/dev/null || true)"
+
           if [ -z "$ISO" ]; then
-            echo "No ISO was produced. Review the Build step logs."
+            echo "No ISO file was found."
+            echo "Build directory contents:"
+            sudo ls -lah "$PROJECT" || true
+
+            echo "Searching for ISO or IMG files:"
+            sudo find "$PROJECT" -type f \
+              \( -name '*.iso' -o -name '*.img' \) \
+              -printf '%p (%s bytes)\n' 2>/dev/null | head -50 || true
+
             exit 1
           fi
-          file "$ISO"
-          ls -lh "$ISO"
-          sha256sum "$ISO"
-          echo "path=$ISO" >> "$GITHUB_OUTPUT"
+
+          echo "ISO found: $ISO"
+
+          sudo file "$ISO"
+          sudo ls -lh "$ISO"
+
+          mkdir -p "$RUNNER_TEMP/krish-iso-artifact"
+
+          sudo cp "$ISO" \
+            "$RUNNER_TEMP/krish-iso-artifact/KRISH-OS-ULTRA-LIGHT-v0.4.iso"
+
+          sudo chmod 0644 \
+            "$RUNNER_TEMP/krish-iso-artifact/KRISH-OS-ULTRA-LIGHT-v0.4.iso"
+
+          file "$RUNNER_TEMP/krish-iso-artifact/KRISH-OS-ULTRA-LIGHT-v0.4.iso"
+
+          ls -lh "$RUNNER_TEMP/krish-iso-artifact/KRISH-OS-ULTRA-LIGHT-v0.4.iso"
+
+          sha256sum "$RUNNER_TEMP/krish-iso-artifact/KRISH-OS-ULTRA-LIGHT-v0.4.iso"
+
+          echo "path=$RUNNER_TEMP/krish-iso-artifact/KRISH-OS-ULTRA-LIGHT-v0.4.iso" >> "$GITHUB_OUTPUT"
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
